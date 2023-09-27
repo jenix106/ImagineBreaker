@@ -5,17 +5,6 @@ using ThunderRoad.AI.Action;
 
 namespace ImagineBreaker
 {
-    /*public class ImagineBreakerLevel : LevelModule
-    {
-        public override void Update()
-        {
-            base.Update();
-            foreach (Item item in Item.allTk)
-            {
-                if (item.gameObject.GetComponent<ImagineBreakerTKCheck>() == null) item.gameObject.AddComponent<ImagineBreakerTKCheck>();
-            }
-        }
-    }*/
     public class ImagineBreakerTKCheck : MonoBehaviour { }
     public class ImagineBreakerSpell : SpellCastData
     {
@@ -44,7 +33,7 @@ namespace ImagineBreaker
                 {
                     if (imbue.energy > 0f)
                     {
-                        Consume(imbue);
+                        imbue.Stop();
                         isImbued = true;
                     }
                 }
@@ -55,55 +44,66 @@ namespace ImagineBreaker
             }
             if(currentSpellCaster.ragdollHand.colliderGroup.imbue != null && currentSpellCaster.ragdollHand.colliderGroup.imbue.energy > 0)
             {
-                Consume(currentSpellCaster.ragdollHand.colliderGroup.imbue);
+                currentSpellCaster.ragdollHand.colliderGroup.imbue.Stop();
                 PlayEffect();
             }
         }
 
-        private void Creature_OnDamageEvent(CollisionInstance collisionInstance)
+        private void Creature_OnDamageEvent(CollisionInstance collisionInstance, EventTime eventTime)
         {
             bool isMagic = false;
-            if(collisionInstance.targetColliderGroup != null && (collisionInstance.targetColliderGroup == currentSpellCaster.ragdollHand.colliderGroup || collisionInstance.targetColliderGroup == currentSpellCaster.ragdollHand.lowerArmPart.colliderGroup))
+            if (collisionInstance.targetColliderGroup != null && (collisionInstance.targetColliderGroup == currentSpellCaster.ragdollHand.colliderGroup || collisionInstance.targetColliderGroup == currentSpellCaster.ragdollHand.lowerArmPart.colliderGroup))
             {
-                if(collisionInstance.casterHand != null && collisionInstance.damageStruct.damageType == DamageType.Energy)
+                if (collisionInstance.casterHand != null && collisionInstance.damageStruct.damageType == DamageType.Energy)
                 {
-                    currentSpellCaster.mana.creature.currentHealth += collisionInstance.damageStruct.damage;
-                    collisionInstance.casterHand.mana.creature.TryPush(Creature.PushType.Magic, currentSpellCaster.transform.position - collisionInstance.casterHand.transform.position, 1); 
-                    if (collisionInstance.casterHand.isFiring)
-                        collisionInstance.casterHand.Fire(false);
-                    collisionInstance.casterHand.UnloadSpell();
-                    /*if (collisionInstance.casterHand?.ragdollHand?.creature?.brain?.instance?.tree?.rootNode != null && collisionInstance.casterHand.ragdollHand.creature.brain.instance.tree.rootNode.IsRunningNode<AttackSpell>())
-                        collisionInstance.casterHand.ragdollHand.creature.brain.instance.tree.rootNode.OnFail();*/
+                    collisionInstance.damageStruct.damage = 0;
+                    if (!collisionInstance.casterHand.mana.creature.isPlayer && collisionInstance.casterHand.isSpraying && eventTime == EventTime.OnEnd)
+                    {
+                        collisionInstance.casterHand.mana.creature.TryPush(Creature.PushType.Magic, -(currentSpellCaster.transform.position - collisionInstance.casterHand.transform.position).normalized, 1);
+                    }
                     isMagic = true;
                 }
                 if (collisionInstance.sourceCollider?.GetComponentInParent<Item>() is Item item)
                 {
                     if (collisionInstance.sourceColliderGroup?.imbue?.energy > 0f)
                     {
-                        if (collisionInstance.damageStruct.damageType == DamageType.Energy) currentSpellCaster.mana.creature.currentHealth += collisionInstance.damageStruct.damage;
-                        Consume(collisionInstance.sourceColliderGroup.imbue);
-                        List<EffectDecal> decals = new List<EffectDecal>();
-                        foreach (Effect effect in collisionInstance.effectInstance.effects)
+                        if (collisionInstance.damageStruct.damageType == DamageType.Energy)
                         {
-                            if (effect.GetType() == typeof(EffectDecal)) decals.Add(effect as EffectDecal);
-                            effect.Stop();
+                            collisionInstance.damageStruct.damage = 0;
+                            collisionInstance.effectInstance = null;
                         }
-                        for (int i = 0; i < decals.Count; i++)
+                        if (eventTime == EventTime.OnStart)
                         {
-                            decals[i].Despawn();
-                            decals.RemoveAt(i);
-                            i--;
+                            collisionInstance.sourceColliderGroup.imbue.Stop();
+                            /*List<EffectDecal> decals = new List<EffectDecal>();
+                            foreach (Effect effect in collisionInstance.effectInstance.effects)
+                            {
+                                if (effect.GetType() == typeof(EffectDecal)) decals.Add(effect as EffectDecal);
+                                effect.Stop();
+                            }
+                            for (int i = 0; i < decals.Count; i++)
+                            {
+                                decals[i].Despawn();
+                                decals.RemoveAt(i);
+                                i--;
+                            }
+                            decals.Clear();*/
                         }
-                        decals.Clear();
                         isMagic = true;
                     }
-                    if (item.lastHandler == null && item.rb.velocity.magnitude >= 2)
+                    if (item.GetComponent<ItemMagicProjectile>() != null || item.GetComponent<ItemMagicAreaProjectile>() != null)
+                    {
+                        collisionInstance.damageStruct.damage = 0;
+                        //if (item.gameObject.activeSelf && eventTime == EventTime.OnEnd) item.Despawn();
+                        isMagic = true;
+                    }
+                    else if (item.lastHandler == null && item.physicBody.velocity.magnitude >= 2)
                     {
                         if (item.GetComponent<ImagineBreakerTKCheck>() == null) item.Despawn();
                         else
                         {
-                            item.rb.velocity = Vector3.zero;
-                            item.rb.angularVelocity = Vector3.zero;
+                            item.physicBody.velocity = Vector3.zero;
+                            item.physicBody.angularVelocity = Vector3.zero;
                         }
                         isMagic = true;
                     }
@@ -113,8 +113,8 @@ namespace ImagineBreaker
                         {
                             handle.telekinesisHandler?.telekinesis?.TryRelease(false);
                         }
-                        item.rb.velocity = Vector3.zero;
-                        item.rb.angularVelocity = Vector3.zero;
+                        item.physicBody.velocity = Vector3.zero;
+                        item.physicBody.angularVelocity = Vector3.zero;
                         isMagic = true;
                     }
                 }
@@ -131,7 +131,7 @@ namespace ImagineBreaker
                 {
                     if (imbue.energy > 0f)
                     {
-                        Consume(imbue);
+                        imbue.Stop();
                         isMagic = true;
                     }
                 }
@@ -180,43 +180,16 @@ namespace ImagineBreaker
             }
             if (isMagic) PlayEffect();
         }
-        public void Consume(Imbue imbue)
-        {
-            imbue.energy = 0f;
-            imbue.spellCastBase.Unload();
-            imbue.spellCastBase = null;
-            imbue.CancelInvoke();
-        }
 
         private void CollisionHandler_OnCollisionStartEvent(CollisionInstance collisionInstance)
         {
             bool isMagic = false;
-            if (collisionInstance.sourceCollider?.GetComponentInParent<ItemMagicProjectile>() is ItemMagicProjectile magic)
+            if (collisionInstance.damageStruct.damage == 0 || collisionInstance.ignoreDamage)
             {
-                currentSpellCaster.mana.creature.currentHealth += collisionInstance.damageStruct.damage;
-                List<EffectDecal> decals = new List<EffectDecal>();
-                foreach (Effect effect in collisionInstance.effectInstance.effects)
+                if (collisionInstance.sourceCollider?.GetComponentInParent<ItemMagicProjectile>() is ItemMagicProjectile magic)
                 {
-                    if (effect.GetType() == typeof(EffectDecal)) decals.Add(effect as EffectDecal);
-                    effect.Stop();
-                }
-                for (int i = 0; i < decals.Count; i++)
-                {
-                    decals[i].Despawn();
-                    decals.RemoveAt(i);
-                    i--;
-                }
-                decals.Clear();
-                //magic.item.Despawn();
-                isMagic = true;
-            }
-            if (collisionInstance.sourceCollider?.GetComponentInParent<Item>() is Item item)
-            {
-                if (collisionInstance.sourceColliderGroup?.imbue?.energy > 0f)
-                {
-                    if (collisionInstance.damageStruct.damageType == DamageType.Energy) currentSpellCaster.mana.creature.currentHealth += collisionInstance.damageStruct.damage;
-                    Consume(collisionInstance.sourceColliderGroup.imbue);
                     List<EffectDecal> decals = new List<EffectDecal>();
+                    collisionInstance.effectInstance.Stop();
                     foreach (Effect effect in collisionInstance.effectInstance.effects)
                     {
                         if (effect.GetType() == typeof(EffectDecal)) decals.Add(effect as EffectDecal);
@@ -229,49 +202,73 @@ namespace ImagineBreaker
                         i--;
                     }
                     decals.Clear();
+                    //magic.item.Despawn();
                     isMagic = true;
                 }
-                if (item.lastHandler == null && item.rb.velocity.magnitude >= 2)
+                if (collisionInstance.sourceCollider?.GetComponentInParent<Item>() is Item item)
                 {
-                    if (item.GetComponent<ImagineBreakerTKCheck>() == null) item.Despawn();
-                    else
+                    if (collisionInstance.sourceColliderGroup?.imbue?.energy > 0f)
                     {
-                        item.rb.velocity = Vector3.zero;
-                        item.rb.angularVelocity = Vector3.zero;
-                    }
-                    isMagic = true;
-                }
-                if (item.isTelekinesisGrabbed)
-                {
-                    foreach (Handle handle in collisionInstance.sourceCollider.GetComponentInParent<Item>().handles)
-                    {
-                        handle.telekinesisHandler?.telekinesis?.TryRelease(false);
-                    }
-                    item.rb.velocity = Vector3.zero;
-                    item.rb.angularVelocity = Vector3.zero;
-                    isMagic = true;
-                }
-            }
-            if (collisionInstance.sourceColliderGroup == currentSpellCaster.ragdollHand.colliderGroup && collisionInstance.targetColliderGroup?.GetComponentInParent<RagdollHand>() is RagdollHand hand && hand.caster.spellInstance != null && hand.caster.spellInstance.GetType() != typeof(ImagineBreakerSpell))
-            {
-                if (hand.caster.isFiring) hand.caster.Fire(false);
-                hand.caster.UnloadSpell();
-                isMagic = true;
-            }
-            if(collisionInstance.targetCollider.GetComponentInParent<Creature>() is Creature creature)
-            {
-                if (creature.brain.isElectrocuted)
-                {
-                    creature.StopShock();
-                    isMagic = true;
-                }
-                creature.ragdoll.StopCoroutine("NoGravityCoroutine");
-                foreach (Ragdoll.PhysicModifier modifier in creature.ragdoll.physicModifiers)
-                {
-                    if (modifier.handler is SpellCastGravity)
-                    {
-                        creature.ragdoll.RemovePhysicModifier(modifier.handler);
+                        collisionInstance.sourceColliderGroup.imbue.Stop();
+                        List<EffectDecal> decals = new List<EffectDecal>();
+                        foreach (Effect effect in collisionInstance.effectInstance.effects)
+                        {
+                            if (effect.GetType() == typeof(EffectDecal)) decals.Add(effect as EffectDecal);
+                            effect.Stop();
+                        }
+                        for (int i = 0; i < decals.Count; i++)
+                        {
+                            decals[i].Despawn();
+                            decals.RemoveAt(i);
+                            i--;
+                        }
+                        decals.Clear();
                         isMagic = true;
+                    }
+                    if (item.lastHandler == null && item.physicBody.velocity.magnitude >= 2)
+                    {
+                        if (item.GetComponent<ImagineBreakerTKCheck>() == null) item.Despawn();
+                        else
+                        {
+                            item.physicBody.velocity = Vector3.zero;
+                            item.physicBody.angularVelocity = Vector3.zero;
+                        }
+                        isMagic = true;
+                    }
+                    if (item.isTelekinesisGrabbed)
+                    {
+                        foreach (Handle handle in collisionInstance.sourceCollider.GetComponentInParent<Item>().handles)
+                        {
+                            handle.telekinesisHandler?.telekinesis?.TryRelease(false);
+                        }
+                        item.physicBody.velocity = Vector3.zero;
+                        item.physicBody.angularVelocity = Vector3.zero;
+                        isMagic = true;
+                    }
+                }
+                if (collisionInstance.sourceColliderGroup == currentSpellCaster.ragdollHand.colliderGroup && collisionInstance.targetColliderGroup?.GetComponentInParent<RagdollHand>() is RagdollHand hand && hand.caster.spellInstance != null && hand.caster.spellInstance.GetType() != typeof(ImagineBreakerSpell))
+                {
+                    if (!collisionInstance.casterHand.mana.creature.isPlayer && collisionInstance.casterHand.isFiring)
+                    {
+                        collisionInstance.casterHand.mana.creature.TryPush(Creature.PushType.Magic, -(currentSpellCaster.transform.position - collisionInstance.casterHand.transform.position).normalized, 1);
+                    }
+                    isMagic = true;
+                }
+                if (collisionInstance.targetCollider.GetComponentInParent<Creature>() is Creature creature)
+                {
+                    if (creature.brain.isElectrocuted)
+                    {
+                        creature.StopShock();
+                        isMagic = true;
+                    }
+                    creature.ragdoll.StopCoroutine("NoGravityCoroutine");
+                    foreach (Ragdoll.PhysicModifier modifier in creature.ragdoll.physicModifiers)
+                    {
+                        if (modifier.handler is SpellCastGravity)
+                        {
+                            creature.ragdoll.RemovePhysicModifier(modifier.handler);
+                            isMagic = true;
+                        }
                     }
                 }
             }
